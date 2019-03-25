@@ -1,0 +1,33 @@
+ {
+   "Records" : [
+   {
+      "Weight":"0.00",
+      "Units":"g",
+      "Timestamp":"mm/dd/yyyy",
+      "Picture":"mmddyyyyhhmmss.jpg"  
+   },
+   {
+      "Weight":"14.72",
+      "Unit":"g",
+      "Timestamp":"01/21/2019 16:04:18",
+      "Picture":"01212019160418.jpg"
+   },
+   {
+      "Weight":"0.53",
+      "Unit":"oz",
+      "Timestamp":"01/21/2019 16:04:46",
+      "Picture":"01212019160446.jpg"
+   },
+   {
+      "Weight":"19.97",
+      "Unit":"g",
+      "Timestamp":"01/21/2019 18:42:14",
+      "Picture":"01212019184214.jpg"
+   },
+   {
+      "Weight":"19.99",
+      "Unit":"g",
+      "Timestamp":"01/21/2019 18:42:24",
+      "Picture":"01212019184224.jpg"
+   }
+]}

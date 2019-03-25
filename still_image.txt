@@ -1,0 +1,11 @@
+
+Still_Mode: True Time: 12/25/2018 18:02:23
+Still_Mode: False Time: 12/25/2018 19:57:58
+Still_Mode: False Time: 12/25/2018 20:44:01
+Still_Mode: True Time: 12/25/2018 20:53:00
+Still_Mode: True Time: 12/25/2018 21:01:38
+Still_Mode: True Time: 12/25/2018 21:02:04
+Still_Mode: True Time: 12/25/2018 21:03:23
+Still_Mode: False Time: 12/25/2018 21:05:57
+Still_Mode: False Time: 12/25/2018 21:07:54
+Still_Mode: False Time: 12/25/2018 21:08:36

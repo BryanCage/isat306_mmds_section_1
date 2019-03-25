@@ -1,0 +1,56 @@
+# JSON example snippet
+with open('camera_config_test.json') as f:
+	camera_config = json.load(f)
+	encoderDiff = (encoder - menu_ResolutionLowRange)
+	newResolution = menu_cameraResolution[encoderDiff]
+	print("currentResolution: " + str(newResolution))
+	list_newResolution = newResolution.split("x")
+	print(list_newResolution)
+	newWidth = int(list_newResolution[0].strip())
+	print(type(newWidth))
+	newHeight = int(list_newResolution[1].strip())
+	print(newHeight)
+	camera_config['width'] = newWidth
+	camera_config['height'] = newHeight
+	if(newWidth == 640 or newWidth == 1280):
+		camera_config['framerate'] = 30
+	elif(newWidth == 1640):
+		camera_config['framerate'] = 40
+	else:
+		camera_config['framerate'] = 40
+	print(json.dumps(camera_config, indent=4, sort_keys=True))
+	print("Encoder: " + str(encoder))
+	f.close()
+	f = open('camera_config_test.json', 'w')
+	f.write(json.dumps(camera_config, indent=4, sort_keys=True))
+	f.close()
+				
+# open file code snippet
+log = open("logfile_sys_argv.txt", "a+")
+log.write(dt.datetime.now().strftime("%m/%d/%Y %H:%M:%S: Log => "))
+log.write("System Argument: " + str(sys.argv[1] + " => Still Image Capture Enabled.\n"))
+log.close()	
+
+with open('units.json') as f:
+		unit_json = json.load(f)
+		for key in unit_json['scale']['units']:
+			if(unit_json['scale']['units'][key] == True):
+				array.append(key)
+		if(len(array) == 0 or len(array) >= 2):
+			log = open("logfile.txt", "a+")
+			log.write(dt.datetime.now().strftime("%m%d%Y %H:%M:%S: Log => "))
+			log.write("Check units.json for error. Resetting units.json")
+			log.close()
+			unit_json['scale']['units']['g'] = True
+			unit_json['scale']['units']['lbs'] = False
+			unit_json['scale']['units']['oz'] = False
+			f.close()				
+			f = open('units.json', 'w')
+			f.write(json.dumps(unit_json, indent = 4, sort_keys=True))
+			f.close()
+			default_unit = "g"
+			return default_unit
+		else:
+			f.close()
+			print("Array zero: " + str(array[0]))
+			return array[0] 

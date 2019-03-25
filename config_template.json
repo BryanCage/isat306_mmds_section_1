@@ -1,0 +1,22 @@
+{
+   "camera": 
+   {
+    "annotate_text_size": 30, 
+    "awb": "auto", 
+    "exposure": "auto", 
+    "framerate": 30, 
+    "height": 480, 
+    "iso": "auto", 
+    "width": 640,
+    "record_mode": true
+   },
+   "scale": 
+   	{ 
+   	"units": 
+	   	{
+	   	"g":true, 
+	   	"oz":false,
+	   	"lbs":false
+	   	} 
+   	} 
+}

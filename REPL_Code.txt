@@ -1,0 +1,62 @@
+from menu import Menu
+from MenuRegistry import MenuRegistry
+m1 = Menu('Main', 10, ['Item 1','Item 2'])
+mr = MenuRegistry()
+mr.addMenuToRegister(m1)
+m2 = Menu('Wifi', 12, ['Item 1','Item 2'])
+mr.addMenuToRegister(m2)
+menu_MainList = Menu('menu_MainList', 10, [  
+
+                "Bluetooth",
+                "Wifi",
+                "Select SSID",
+                "Scale Config",
+                "Camera Config",
+                "Display Info",
+                "Start Monitor"
+        
+                ], True)
+
+menu_BlueList = Menu('menu_BlueList', 2, [
+    
+                "Blu T:  ON [OFF]"
+                
+                ], False)
+
+menu_WifiList = Menu('menu_WifiList', 4, [
+    
+                "Wifi:  ON [OFF]"
+                
+                ], False)
+
+menu_ScaleList= Menu('menu_ScaleList', 20, [
+    
+                "Tare",
+                "Calibrate Scale",
+                "Units of Measure",
+                "Main Menu"
+                
+                ], False)
+
+menu_CameraList = ('menu_CameraList', 36, [
+                        
+                "Preview",
+                "Resolution",
+                "Mode",
+                "ISO",
+                "Shutter Speed",
+                "AWB",
+                "Main Menu"
+
+                ], False)
+
+menu_DisplayList = ('menu_DisplayList', 45, [
+    
+                "Box ID: 1111",
+                "PI Name: \n Katrina Gobetz",
+                "Hillendale\nTurtle Tracking",
+                "Main Menu"
+                              
+                ], False)
+
+menu_MonitorList = ('menu_MonitorList', 44, [ "Run:  ON [OFF]" ], False)

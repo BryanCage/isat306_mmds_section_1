@@ -1,0 +1,1121 @@
+#===============================================================
+#    WB7FHC's Morse Code Decoder v. 1.1
+#    (c) 2014, Budd Churchward - WB7FHC
+#    This is an Open Source Project
+#    http://opensource.org/licenses/MIT
+
+#    Search YouTube for 'WB7FHC' to see several videos of this project
+#    as it was developed.
+
+#    MIT license, all text above must be included in any redistribution
+#    **********************************************************************
+
+
+#    This project demonstrates several ways to use a rotary encoder as part of a user interface
+#    with Arduino and LCD projects.
+
+#    When I actually tried this in an On-Air QSO I found that it was not easy to use. I can not
+#    recommend that you use it either. I am posting this code because there have been so many
+#    requests for it. I hope that those requests come from the desire to implement parts of this
+#    sketch in other projects. The video that goes with this project can be viewed at:
+#    http://youtu.be/MzO__HCKP8I
+
+#    Good Luck,
+#    Budd WB7FHC
+#===============================================================
+
+
+#===============================================================
+#===   IMPORTS ========                                      ===
+#===============================================================
+
+from RPi import GPIO
+from time import sleep
+#from HX711.hx711_python2 import HX711
+from Adafruit_CharLCD import Adafruit_CharLCD
+from datetime import datetime
+from datetime import timedelta
+from Functions.menuFunctions import *
+#from Functions import getWifiStatus
+from mysql.connector import errorcode
+from mysql.connector import (connection)
+
+import os
+import calendar
+import csv
+import json
+import mimetypes
+import mysql.connector
+import re
+import serial
+import smtplib
+import struct
+import subprocess
+import sys
+import threading
+import time
+import twilio
+import serial.tools.list_ports
+import numpy as np
+
+#===============================================
+#===            Instantiate LCD              ===
+#===============================================
+
+lcd = Adafruit_CharLCD(rs=26,en=19,d4=13,d5=6,d6=5,d7=11,cols=16,lines=2)
+
+lcd.clear()
+lcd.message(" Mammal Monitor\n")
+lcd.message("  Data Station")
+##sleep(2)
+##lcd.clear()
+##lcd.message("Initializing.")
+##sleep(0.75)
+##lcd.clear()
+##lcd.message("Initializing..")
+##sleep(0.75)
+##lcd.clear()
+##lcd.message("Initializing...")
+##sleep(1)
+##lcd.clear()
+##lcd.message("   Initialize\n")
+##lcd.message("    Complete")
+##sleep(1)
+##lcd.clear()
+##lcd.message("Main Menu")
+##lcd.clear()
+##lcd.message("Millis: " + str(millis()))
+##sleep(2)
+##lcd.clear()
+##lcd.message("Millis: " +  str(millis()))
+##sleep(2)
+#lcd.clear()
+
+#===============================================
+#===         SERAIL PORT FUNCTIONS           ===
+#===============================================
+
+##def listPorts():
+##    ports = list(serial.tools.list_ports.comports())
+##
+##    for p in ports:
+##        p.description
+##        p.device
+##
+##
+##def getArduinoPort():
+##    ports = list(serial.tools.list_ports.comports())
+##
+##    for p in ports:
+##        if ("arduino" in p.description.lower()):
+##            print("PORT: " + p.device)
+##            return p.device
+##
+###=== USE TO GET SPECIFIC PORT ===================
+##def getSpecifiedPort(portName):
+##    ports = list(serial.tools.list_ports.comports())
+##
+##    for p in ports:
+##        if portName in p.description.lower():
+##            print("PORT: " + p.device)
+##            return p.device
+##
+###===============================================
+###===    INITIALIZE SERIAL PORT - CONFIGS     ===
+###===============================================
+##
+##PORT = '{}'.format(getArduinoPort().strip())
+##BAUD_RATE = 9600
+##
+### === Open Serial Port =========================
+##ser = serial.Serial(PORT, BAUD_RATE, timeout=1)
+##
+#===============================================
+#===            Assign Values             ===
+#===============================================
+PIN_A         = 17            # Clock
+PIN_B         = 18            # Data
+PIN_21        = 21            # Red_LED
+PIN_20        = 20            # Green_LED
+PIN_16        = 16            # Blue_LED
+PIN_HX711_DAT = 2
+PIN_HX711_CLK =  3
+clickPin      = 27            # Switch Button
+#keyOut       = 7             # Won't be used here - goes to Morse Code Keyer
+
+#===============================================
+#===               GPIO SETUP                ===
+#===============================================
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(PIN_A, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(PIN_B, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(clickPin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+#===============================================
+GPIO.setup(PIN_21, GPIO.OUT, initial=0)                             # Set port/pin as an output (BLUE_LED)
+GPIO.setup(PIN_20, GPIO.OUT, initial=0)                             # Set port/pin as an output (GRENN_LED)
+GPIO.setup(PIN_16, GPIO.OUT, initial=0)                             # Set port/pin as an output (RED_LED)
+
+GPIO.output(PIN_21, GPIO.LOW)
+GPIO.output(PIN_20, GPIO.LOW)
+GPIO.output(PIN_16, GPIO.LOW)
+
+state = 0                                          # Used to read the encoder
+encoder = 10                                             # to count the clicks up and down 0-9 command mode 10+ send mode
+
+
+def getWifiStatus():
+    
+    ps = subprocess.Popen(['iwconfig'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        output = subprocess.check_output(('grep', 'ESSID'), stdin=ps.stdout)
+        if(output == '\n'):
+            return False
+        else:
+            return True
+        #print(output)
+        #print(type(output))
+        
+    except subprocess.CalledProcessError:
+        # grep did not match any lines
+        return False
+    
+firstClick=     False
+click_Double=   False
+click_Single=   False
+mode_Main=      True
+
+# Returns Bluetooth True/False
+mode_Blue=      False
+
+# Returns Wifi True/False
+mode_Wifi=      False
+
+mode_Scale=     False
+mode_Camera=    False
+mode_Display=   False    
+mode_Monitor=   False 
+blue_on=        False              # Boolean State of Bluetooth
+wifi_on=        getWifiStatus()    # Pipes iwconfig status of grep and ESSID from stdin to stdout to test wifi logic
+monitor_on=     False
+
+led_Blue=       False
+led_Green=      False
+led_Red=        False
+
+#===============================================
+#=== ENCODINGS ===                           ===
+#===============================================
+# MAIN MENU
+encode_Blue = 10
+encode_Wifi = 11
+encode_Scale = 12
+encode_Camera = 13
+encode_Display = 14
+encode_Monitor = 15
+
+# SCALE MENU
+encode_Tare = 20
+encode_Calibrate = 21
+encode_Timestamp = 22
+encode_ReportRate = 23
+encode_BaudRate = 24
+encode_Units = 25
+encode_Averaging = 26
+encode_Decimals = 27
+encode_LocalTemp = 28
+encode_RemoteTemp = 29
+encode_StatusLED = 30
+encode_SerialTrigger = 31
+encode_RawRead = 32
+encode_ScaleExit = 33
+
+# MENU ENCODING RANGES
+
+    # Main Menu
+numItems_menu_MainList = 6             # Number of items in the Main Menu
+numItems_menu_MainString = 6
+knobMax = numItems_menu_MainList + 10  # Use to cycle the menus around in a loop so that item first comes after item last
+knobMin = 10;                          # Use to cycle the opposite direction
+
+    # Bluetooth
+numItems_menu_BlueList = 1
+numItems_menu_BlueString = 1
+menu_BlueLowRange = 1
+menu_BlueTopRange = 2
+
+    # Wifi
+numItems_menu_WifiList = 1
+numItems_menu_WifiString = 1
+menu_WifiLowRange = 4
+menu_WifiTopRange = 5
+
+    # Scale Config
+numItems_menu_ScaleList = 14		         # Number of items in the Scale Menu -- List Format
+numItems_menu_ScaleString = 14		       # Number of items in the Scale Menu -- String FormatnumItems_menu_S
+menu_ScaleLowRange = 20
+menu_ScaleTopRange = 34
+
+    # Camera Config
+numItems_menu_CameraList = 7		# Number of items in the Camera Menu -- List Format
+numItems_menu_CameraString = 7		# Number of items in the Camera Menu -- String Format
+menu_CameraLowRange = 36
+menu_CameraTopRange = 43
+
+    # Display
+numItems_menu_DisplayList = 4		# Number of items in the Display Menu -- List Format
+numItems_menu_DisplayString = 4		# Number of items in the Display Menu -- String Format
+menu_DisplayLowRange = 45
+menu_DisplayTopRange = 49
+    
+    # Monitor
+numItems_menu_MonitorList = 1		# Number of items in the Monitor Menu -- List Format 
+numItems_menu_MonitorString = 1		# Number of items in the Monitor Menu -- String Format
+menu_MonitorLowRange = 44
+menu_MonitorTopRange = 45
+
+character = ' '                        # stores the character we want to print or send
+
+
+menu_MainList = [  
+
+                "Bluetooth",
+                "Wifi",
+                "Scale Config",
+                "Camera Config",
+                "Display Info",
+                "Start Monitor"
+        
+                ]
+menu_BlueList = [
+    
+                "Blu T:  ON [OFF]"
+                
+                ]
+
+menu_WifiList = [
+    
+                "Wifi:  ON [OFF]"
+                
+                ]
+
+menu_ScaleList= [
+    
+                "Tare",
+                "Calibrate Scale",
+                "Timestamp",
+                "Set Report Rate",
+                "Set Baud Rate",
+                "Units of Measure",
+                "Decimals[0]",
+                "Average Amount",
+                "Local Temp[Off]",
+                "RemoteTemp[Off]",
+                "Status LED [Off]",
+                "SerialTrig [Off]",
+                "Raw Read [Off]",
+                "Main Menu"
+                
+                ]
+
+menu_CameraList = [
+                        
+                "Preview",
+                "Resolution",
+                "Mode",
+                "ISO",
+                "Shutter Speed",
+                "AWB",
+                "Main Menu"
+
+                ]
+
+menu_DisplayList = [
+    
+                "Box ID: 1111",
+                "PI Name: \n Katrina Gobetz",
+                "Hillendale\nTurtle Tracking",
+                "Main Menu"
+                              
+                ]
+
+menu_MonitorList = [ "Run:  ON [OFF]" ]
+
+
+
+menu_MainString = "0Bluetooth 1Wifi 2Display Info 3Scale Config 4Camera Config 5Box Info 6Start Monitor 7"
+menu_BlueString = "0ON 1OFF 2"
+menu_WifiString= "ON 1OFF"
+menu_ScaleString = "0System Config 1Tare 2Calibrate Scale 3Timestamp 4Set Report Rate 5Set Baud Rate 6Units of Measure 7Decimals[] 8Average Amount 9Local Temp[Off] 10RemoteTemp[Off] 11Status LED [Off] 12SerialTrig [Off] 13Raw Read [Off] 14Exit 15"  
+menu_CameraString = "0Preview 1Resolution 2Mode 3ISO 4Shutter Speed 5AWB 6"
+menu_DisplayString = ""
+menu_MonitorString = "0ON 1OFF 2"
+
+#===========================================
+#===           ARROW CHARACTERS          ===
+#===========================================
+# Three of the edit features need a cursor which was hard to do on the LCD screen,
+# so I went with a arrows instead. These defines the graphics
+
+upArrow = [ 0b0,0b100,0b111,0b10101,0b100,0b100,0b100,0b10 ]
+lcd.create_char(0,upArrow)
+
+downArrow = [ 0b0, 0b100, 0b100, 0b100, 0b100, 0b10101, 0b1110, 0b100 ] 
+lcd.create_char(1,downArrow);
+
+
+#================================================================
+#===      SEND FUNCTION DEFINITIONS                          ====
+#================================================================
+
+#=================================================================
+#===  PYTHON LEARNING SECTION -- WORKING WITH ord(), chr()     ===
+#=================================================================
+#===   chr(any int i.e. 97 or hex i.e. 0x61) will return       ===
+# ===  ascii char representation.                              ===
+#===        ex: chr(97) == 'a' or chr(0x62) == 'b'             ===
+#===   conversly ord(any string character i.e. 'a')            ===
+# ===  will return int representaion                           ===
+#===        ex. ord('a') returns the integer 97                ===
+#=================================================================
+
+#===========================================
+#===         FUNCTION DEFINITIONS        ===
+#===========================================
+
+# ============================================================
+# === clearFlagSet(**kwargs)                                      ===
+# ============================================================
+def clearFlagSet(**kwargs):
+        
+        global click_Double
+        global click_Single
+        global mode_Main
+        global mode_Blue
+        global mode_Wifi
+        global mode_Scale
+        global mode_Camera
+        global mode_Display
+        global mode_Monitor
+        global toggle_Blue
+        global toggle_Wifi
+        
+# ============================================================
+# === clearAllFlags()                               ===
+# ============================================================        
+def clearAllFlags():
+    
+        global click_Double
+        global click_Single
+        global mode_Main
+        global mode_Blue
+        global mode_Wifi
+        global mode_Scale
+        global mode_Camera
+        global mode_Display
+        global mode_Monitor
+        
+    
+        click_Double=   False  
+        click_Single=   False
+        mode_Main=      True
+        mode_Blue=      False
+        mode_Wifi=      False
+        mode_Scale=     False
+        mode_Camera=    False
+        mode_Display=   False
+        mode_Monitor=   False
+        
+
+
+
+# ============================================================
+# === knobTurned()  -- ISR                              ===
+# ============================================================
+def knobTurned(channel):
+
+    global encoder
+    global knobMin
+    global knobMax
+   
+    global click_Double    
+    global click_Single
+    
+    global mode_Main
+    global mode_Blue
+    global mode_Scale  
+    global mode_Wifi 	
+    global mode_Display 
+    global mode_Camera
+    global mode_Monitorsssss
+    
+    state = 0
+    state = state + GPIO.input(PIN_A)
+    state <<=1
+    state = state + GPIO.input(PIN_B)
+    
+    if (state == 0 or state == 1): return
+    print(state)
+    if(state == 2):
+        bump = [ 0, 0, 1 , 1 ]                   # simple array that tells me valid and invalid readings from the encoder and which way its turning
+    else:
+        bump = [ 0, 0, -1 , -1 ]                   # simple array that tells me valid and invalid readings from the encoder and which way its turning
+
+    
+    encoder += bump[state]              # added direction of turn to state
+    if(encoder < knobMin):              # lower limit of any menu roll back to top
+        encoder = knobMax-1             # upper limit of any menu roll back to bottom
+    if(encoder > knobMax -1):
+        encoder = knobMin
+    print("Encoder: " + str(encoder))
+    lcd.clear()
+    lcd.set_cursor(0,0)
+    
+    if(mode_Blue):
+        showMenuList(menu_BlueList)
+        #print("Bluetooth Menu")
+    elif(mode_Wifi):
+        showMenuList(menu_WifiList)
+        #print("Wifi Menu")
+    elif(mode_Scale):
+        showMenuList(menu_ScaleList)
+        #print("Scale Config")
+    elif(mode_Camera):
+        showMenuList(menu_CameraList)
+        #print("Camera Config")
+    elif(mode_Display):
+        showMenuList(menu_DisplayList)
+        #print("Display Unit Data")
+    elif(mode_Monitor):
+        showMenuList(menu_MonitorList)
+        #print("Exec Monitor?")
+    else:
+        #print("Main Menu")
+        showMainMenuList()
+    
+
+# ============================================================
+# ===   knobPressed(channel) -- ISR                              ===
+# ============================================================
+def knobPressed(channel):
+
+    global click_Single
+    global click_Double
+    global first_Click
+    global encoder
+    global mode_Main
+    global mode_Blue
+    global mode_Wifi
+    global mode_Scale
+    global mode_Camera
+    global mode_Display
+    global mode_Monitor
+    global blue_on
+    global wifi_on
+    global monitor_on
+            
+    click_Single = True
+        
+
+    if(encoder == encode_Blue and not mode_Blue): #1 
+        mode_Blue = True
+        switchToBlueMenu()
+        click_Single = False
+        print("#1")
+    elif(encoder == encode_Wifi and not mode_Wifi): #2 
+        mode_Wifi = True
+        switchToWifiMenu()
+        click_Single = False
+        print("#2")
+    elif(encoder == encode_Scale and not mode_Scale):
+        mode_Scale = True
+        lcd.set_cursor(0,0)
+        lcd.clear()
+        lcd.message(menu_ScaleList[0])
+        switchToScaleMenu()
+        click_Single = False
+        print("#3")
+    elif(encoder == encode_Camera and not mode_Camera):
+        mode_Camera = True
+        lcd.set_cursor(0,0)
+        lcd.clear()
+        lcd.message(menu_CameraList[0])
+        switchToCameraMenu()
+        click_Single = False
+        print("#4")
+    elif(encoder == encode_Display and not mode_Display):
+        mode_Display = True
+        lcd.set_cursor(0,0)
+        lcd.message(menu_DisplayList[0])
+        switchToDisplayMenu()
+        click_Single = False
+        print("#5")
+    elif(encoder == encode_Monitor and not mode_Monitor):
+        mode_Monitor = True
+        lcd.set_cursor(0,0)
+        lcd.message(menu_MonitorList[0])
+        switchToMonitorMenu()
+        click_Single = False
+        print("#6")
+    elif(encoder == 1 and not blue_on):
+        clearAllFlags()
+        switchToMainMenuList()
+        os.system("sudo rfkill unblock bluetooth")
+        menu_BlueList[0] = "Blu T: [ON] OFF "
+        lcd.set_cursor(0,0)
+        lcd.message(menu_BlueList[0])
+        sleep(1)
+        lcd.clear()
+        lcd.message("Back to Main")
+        sleep(1)
+        lcd.clear()
+        lcd.message(str(menu_MainList[0]))
+        blue_on = True
+        print("#7")
+    elif(encoder == 1 and blue_on):
+        clearAllFlags()
+        switchToMainMenuList()
+        os.system("sudo rfkill block bluetooth")
+        menu_BlueList[0] = "Blu T:  ON [OFF]"
+        lcd.set_cursor(0,0)
+        lcd.message(menu_BlueList[0])
+        sleep(1)
+        lcd.clear()
+        lcd.message("Back to Main")
+        sleep(1)
+        lcd.clear()
+        lcd.message(str(menu_MainList[0]))
+        blue_on = False
+        print("#8")
+    elif(encoder == 4 and not wifi_on):
+        clearAllFlags()
+        switchToMainMenuList()
+        os.system("sudo rfkill unblock wifi")
+        menu_WifiList[0] = "Wifi: [ON] OFF "
+        lcd.set_cursor(0,0)
+        lcd.message(menu_WifiList[0])
+        sleep(1)
+        lcd.clear()
+        lcd.message("Back to Main")
+        sleep(1)
+        lcd.clear()
+        lcd.message(str(menu_MainList[1]))
+        wifi_on = True
+        print("#9")
+    elif(encoder == 4 and wifi_on):
+        clearAllFlags()
+        switchToMainMenuList()
+        os.system("sudo rfkill block wifi")
+        menu_WifiList[0] = "Wifi:  ON [OFF]"
+        lcd.set_cursor(0,0)
+        lcd.message(menu_WifiList[0])
+        sleep(1)
+        lcd.clear()
+        lcd.message("Back to Main")
+        sleep(1)
+        lcd.clear()
+        lcd.message(str(menu_MainList[1]))
+        wifi_on = False
+        print("#10")
+    elif(encoder == 33 and mode_Scale):
+        clearAllFlags()
+        lcd.set_cursor(0,0)
+        lcd.message(menu_MainList[2])
+        mode_Scale = False
+        switchToMainMenuList()
+    elif(encoder == 42 and mode_Camera):
+        clearAllFlags()
+        lcd.set_cursor(0,0)
+        lcd.message(menu_MainList[3])
+        mode_Camera = False
+        switchToMainMenuList()
+    elif(encoder == 48 and mode_Display):
+        clearAllFlags()
+        lcd.set_cursor(0,0)
+        lcd.message(menu_MainList[4])
+        mode_Display = False
+        switchToMainMenuList()
+    elif(encoder == 44 and not monitor_on):
+        clearAllFlags()
+        menu_MonitorList[0] = "Run: [ON] OFF "
+        lcd.set_cursor(0,0)
+        lcd.message(menu_MonitorList[0])
+        monitor_on = True
+        switchToMainMenuList()
+    elif(encoder == 44 and monitor_on):
+        clearAllFlags()
+        menu_MonitorList[0] = "Run:  ON [OFF]"
+        lcd.set_cursor(0,0)
+        lcd.message(menu_MonitorList[0])
+        monitor_on = False
+        switchToMainMenuList()
+        
+# ============================================================
+# === moveTextArrow() ===
+# ============================================================
+def moveTextArrow():
+
+    global char_mode
+
+    #print("Here I AM")
+    lcd.set_cursor(arrowX, 2)
+    lcd.write8(' ');
+    arrowX = arrowX + bump[state]
+    if(arrowX > 19):
+        arrowX = 19
+    if(arrowX < 0):
+        arrowX = 0
+    flipArrow = bin(0)
+    flipArrow = flipArrow + arrow
+    flipArrow <<= 1
+    print(flipArrow,BIN)
+    print(' ')
+    arrow = (bump[state] > 0)
+    flipArrow = flipArrow + arrow
+    #flipArrow =+ 8;
+    print(flipArrow,BIN)
+    if (flipArrow == 1):
+      arrowX -= 1
+    if (flipArrow == 2):
+      arrowX += 1
+    lcd.set_cursor(arrowX, 2)
+    lcd.write8(arrow, char_mode=True)
+
+# ============================================================
+# === showMenu()                                   ===
+# ============================================================
+def showMenuList(menu):
+    
+    global encoder
+    global knobMax
+    global knobMin
+
+    
+    print("Encoder: " + str(encoder))
+    
+    stopHere = len(menu[encoder-knobMin])
+    
+    if (stopHere > 16):
+        stopHere = 16                             # truncate the text so it fits on one line
+    for i in range(1, stopHere):
+        lcd.set_cursor(0,0)
+        lcd.message(menu[encoder-knobMin])     # 10 represents the begin of encoder range "knobMin" ;put the text on the LCD
+        
+# ============================================================
+# === showMainMenuList()                                   ===
+# ============================================================
+def showMainMenuList():
+
+    global encoder
+    global knobMax
+    global knobMin
+    global numItems_menu_MainList
+    global encoder
+    
+##    encoder = 10
+##    knobMax = numItems_menu_MainList + 10  # Use to cycle the menus around in a loop so that item first comes after item last
+##    knobMin = 10;                          # Use to cycle the opposite direction
+    print("menu_MainListEncode: " + str(encoder))
+    stopHere = len(str(menu_MainList[encoder-10]))
+    
+    if (stopHere > 16):
+        stopHere = 16                             # truncate the text so it fits on one line
+    for i in range(1, stopHere):
+        lcd.set_cursor(0,0)
+        lcd.message(menu_MainList[encoder-10])     # 10 represents the begin of encoder range "knobMin" ;put the text on the LCD
+
+# ============================================================
+# ===   switchToMainMenuList()                             ===
+# ============================================================
+def switchToMainMenuList():
+
+    
+    global mode_Main
+    global knobMax
+    global knobMin
+    global encoder
+
+    clearAllFlags()  # clear all flags before returning to Main Menu
+    
+    mode_Main = True
+    knobMax = numItems_menu_MainList + 10
+    knobMin = 10
+    encoder = 10
+    
+    lcd.set_cursor(0,0)
+
+    
+# ============================================================
+# ===  switchToBlueMenu()                                       ===
+# ============================================================
+def switchToBlueMenu():
+    
+    global knobMax
+    global knobMin
+    global encoder
+    global mode_Blue
+
+    lcd.set_cursor(0,0)
+    lcd.message(menu_BlueList[0])
+    mode_Blue = True
+    knobMax = menu_BlueTopRange
+    knobMin = menu_BlueLowRange
+    encoder = menu_BlueLowRange
+
+# ============================================================
+# ===   switchToWifiMenu()                                   ===
+# ============================================================
+def switchToWifiMenu():
+    
+    global knobMax
+    global knobMin
+    global encoder
+    global mode_Wifi
+    
+    lcd.set_cursor(0,0)
+    lcd.message(menu_WifiList[0])
+    mode_Wifi = True
+    knobMax = menu_WifiTopRange
+    knobMin = menu_WifiLowRange
+    encoder = menu_WifiLowRange  
+
+# ============================================================
+# ===   switchToScaleMenu()                                ===
+# ============================================================
+def switchToScaleMenu():
+    
+    global knobMax
+    global knobMin
+    global encoder
+    global mode_Scale
+    
+    menu_ScaleTopRange = 34
+    menu_ScaleLowRange = 20
+    
+##    lcd.clear()
+##    lcd.message("Scale Config")
+##    mode_Scale = True
+    knobMax = menu_ScaleTopRange
+    knobMin = menu_ScaleLowRange
+    encoder = menu_ScaleLowRange
+    return
+
+# ============================================================
+# ===   switchToCameraMenu()                               ===
+# ============================================================
+def switchToCameraMenu():
+    
+    global knobMax
+    global knobMin
+    global encoder
+    global mode_Camera
+    
+##    lcd.clear()
+##    lcd.message("Camera Config")
+##    mode_Camera = True
+    knobMax = menu_CameraTopRange
+    knobMin = menu_CameraLowRange
+    encoder = menu_CameraLowRange
+    return
+    
+# ============================================================
+# ===   switchToDisplayMenu()                               ===
+# ============================================================
+def switchToDisplayMenu():
+    
+    global knobMax
+    global knobMin
+    global encoder
+    global mode_Display
+    
+##    lcd.clear()
+##    lcd.message("Display Info")
+##    mode_Display = True
+    knobMax = menu_DisplayTopRange
+    knobMin = menu_DisplayLowRange
+    encoder = menu_DisplayLowRange
+    return
+
+# ============================================================
+# ===   switchToMonitorMenu()                               ===
+# ============================================================
+def switchToMonitorMenu():
+    
+    global knobMax
+    global knobMin
+    global encoder
+    global mode_Monitor
+    
+##    lcd.clear()
+##    lcd.message("Begin Monitoring?\ [START] BACK")
+##    mode_Monitor = True
+    knobMax = menu_MonitorTopRange
+    knobMin = menu_MonitorLowRange
+    encoder = menu_MonitorLowRange
+    return
+
+# ============================================================
+# ===   executeMainMenuItems()                             ===
+# ============================================================
+def executeMainMenuItems(): #Works for either List or Serial methods
+    return
+
+# ============================================================
+# ===   executeStoggleBlue()                                       ===
+# ============================================================
+def executetoggleBlue():
+    return
+
+
+# ============================================================
+# ===   executetoggleWifi()                                       ===
+# ============================================================
+def executetoggleWifi():
+    return
+
+# ============================================================
+# ===   executeScaleMenuItems()                                       ===
+# ============================================================
+def executeScaleMenuItems():
+    return
+
+# ============================================================
+# ===   executeCameraMenuItems()                           ===
+# ============================================================
+def executeCameraMenuItems():
+    return
+
+# ============================================================
+# ===   executeDisplayMenuItems()                          ===
+# ============================================================
+def executeDisplayMenuItems():
+    return
+
+# ============================================================
+# ===   executeMonitoringMenuItems()                       ===
+# ============================================================
+def executeMonitoringMenuItems():
+    return
+
+
+        
+#=============================================================
+# === backToMain()                                     ===
+# ============================================================
+def backToMain():
+    
+    global menu_MainList
+    global scaleConfig
+    global encoder
+    
+    
+# ============================================================
+# === led_mode_debug()                                     ===
+# ============================================================
+def  led_mode_debug():
+
+    global mode_Blue
+    global idleMode
+    global cmdMode
+    global led_Blue
+    global led_Wifi
+    
+    while(mode_Blue and led_Blue):
+        
+        i = 0
+        for i in range(0,4):
+            print(i)
+            if(i <= 2):
+                GPIO.output(PIN_16, GPIO.HIGH) 
+                sleep(0.1)
+                GPIO.output(PIN_16, GPIO.LOW)
+                sleep(0.1)
+                i += 1
+            else:
+                led_Blue = False
+                break            
+      
+    while( wifiMode == True):           # idleMode Green
+        GPIO.output(PIN_20, GPIO.HIGH)
+        sleep(1)
+        GPIO.output(PIN_20, GPIO.LOW)
+        sleep(1)
+        
+    while(cmdMode== True):             # cmdMode Red
+        GPIO.output(PIN_21, GPIO.HIGH)
+        sleep(2)
+        GPIO.output(PIN_21, GPIO.LOW)
+        sleep(2)
+    
+
+# ============================================================
+# === currentStatus()                                      ===
+# ============================================================
+def currentStatus():
+
+    global click_Single
+    global mode_Main
+    global mode_Blue
+    global mode_Wifi
+    global mode_Scale
+    global mode_Camera
+    global mode_Display
+    global mode_Monitor
+    
+    print("click_Single: "+str(click_Single))
+    print("Main: "+str(mode_Main))
+    print("Bluetooth: "+str(mode_Blue))
+    print("Wifi: "+str(mode_Wifi))
+    print("Scale Config: "+str(mode_Scale))
+    print("Camera Config: " + str(mode_Camera))
+    print("Display Info: " + str(mode_Display))
+    print("Monitor: " + str(mode_Monitor))
+
+# ============================================================
+# === poll_buttonPress()                                      ===
+# ============================================================
+def poll_buttonPress():
+    
+    global click_Single
+    global click_Double
+   
+    global clickPin
+    print("polling button Press")
+    
+    first_Click = False
+    first_Click = not GPIO.input(clickPin)
+    if(first_Click):
+        while(not GPIO.input(clickPin)):
+            return
+        sleep(0.2)
+        for i in range(0, 1000):
+            i += i
+            if(not GPIO.input(clickPin)):
+               click_Double = True
+               click_Single = False
+               print("Button Double Clicked")
+        click_Single = True
+        
+        
+    if(click_Single):
+        
+        if(encoder == encode_Blue and not mode_Blue):
+            switchToBlueMenu()
+            click_Single = False
+            return
+        
+        elif(encoder == encode_Blue and mode_Blue):
+            switchToBlueMenu()
+            click_Single = False
+            return
+        
+        elif(encoder == encode_Wifi and not mode_Wifi):
+            toggle_Wifi()
+            click_Single = False
+            return
+        
+        elif(encoder == encode_Scale and not mode_Scale):
+            switchToScaleMenu()
+            click_Single = False
+            return
+        
+        elif(encoder == encode_Camera and not mode_Camera):
+            switchToCameraMenu()
+            click_Single = False
+            return
+        
+        elif(encoder == encode_Display and not mode_Display):
+            switchToDisplayMenu()
+            click_Single = False
+            return
+        
+        elif(encoder == encode_Monitor and not mode_Monitor):
+            switchToMonitorMenu()
+            click_Single = False
+            return
+        else:
+            switchToMainMenu()
+            click_Single = False
+            return
+        
+    if(mode_Blue):
+        executetoggleBlue()
+        return
+# ============================================================
+# ===  main()                                              ===
+# ============================================================
+def main():
+    
+    GPIO.add_event_detect(17, GPIO.RISING  , callback=knobTurned, bouncetime=5)
+    GPIO.add_event_detect(27, GPIO.FALLING , callback=knobPressed, bouncetime=200)
+    
+    raw_input("Enter Anything")
+    GPIO.cleanup()
+
+
+if __name__ == '__main__':
+  main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+### CLIPBOARD ###
+
+
+menu_MainString = "0Bluetooth 1Wifi 2Display Info 3Scale Config 4Camera Config 5Box Info 6Start Monitor 7"
+menu_BlueString = "0ON 1OFF 2"
+menu_WifiString= "ON 1OFF"
+menu_ScaleString = "0System Config 1Tare 2Calibrate Scale 3Timestamp 4Set Report Rate 5Set Baud Rate 6Units of Measure 7Decimals[] 8Average Amount 9Local Temp[Off] 10RemoteTemp[Off] 11Status LED [Off] 12SerialTrig [Off] 13Raw Read [Off] 14Exit 15"  
+menu_CameraString = "0Preview 1Resolution 2Mode 3ISO 4Shutter Speed 5AWB 6"
+menu_DisplayString = ""
+menu_MonitorString = "0ON 1OFF 2"
+
+
+##################
+
+import subprocess
+
+def getWifiStatus():
+
+	ps = subprocess.Popen(['iwconfig'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	try:
+		output = subprocess.check_output(('grep', 'ESSID'), stdin=ps.stdout)
+		return True
+		
+	except subprocess.CalledProcessError:
+	    	# grep did not match any lines
+    		#print("No wireless networks connected")
+		return False
+
+##################
+
+# ============================================================
+# ===   switchToMainMenuString()                           ===
+# ============================================================
+def switchToMainMenuString():
+
+    global mode_Main
+    global knobMax
+    global knobMin
+    global encoder
+    global toggle_Blue
+
+    clearAllFlags()  # clear all flags before returning to Main Menu
+    
+    mode_Main = True
+    knobMax = numItems_menu_MainList + 10
+    knobMin = 10
+    encoder = 10
+    
+    lcd.clear()
+    lcd.message("Main Menu String")                                  # put us on the top item
+
